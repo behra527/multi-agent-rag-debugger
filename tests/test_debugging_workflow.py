@@ -1,4 +1,6 @@
 
+import pytest
+
 from app.agents.fix import FixAgent
 from app.agents.issue_analyzer import IssueAnalyzer
 from app.agents.root_cause import RootCauseAgent
@@ -393,3 +395,110 @@ def test_workflow_reuses_embeddings_for_unchanged_repository(
     assert second_state.validation is not None
     assert second_state.validation.passed is True
 
+
+def test_workflow_records_stage_traces(tmp_path):
+    repository, _ = create_calculator_repository(tmp_path)
+    state = DebuggingState(issue=create_issue(repository))
+    workflow = build_workflow(FakeWorkflowLLM())
+
+    result = workflow.run(
+        state,
+        top_k=3,
+        validation_command=["pytest", "-q"],
+    )
+
+    assert result.validation is not None
+    assert result.validation.passed is True
+
+    expected_stages = {
+        "analyze",
+        "retrieve",
+        "root_cause",
+        "generate_fix",
+        "validate",
+    }
+
+    completed_stages = {
+        trace.stage
+        for trace in result.stage_traces
+        if trace.status == "completed"
+    }
+
+    assert expected_stages.issubset(completed_stages)
+
+    for trace in result.stage_traces:
+        assert trace.status == "completed"
+        assert trace.finished_at is not None
+        assert trace.finished_at >= trace.started_at
+        assert trace.duration_ms is not None
+        assert trace.duration_ms >= 0
+
+    assert result.errors == []
+
+
+def test_workflow_records_stage_failure(tmp_path):
+    repository, _ = create_calculator_repository(tmp_path)
+    state = DebuggingState(issue=create_issue(repository))
+    workflow = build_workflow(FakeWorkflowLLM())
+
+    def fail_analysis(issue):
+        raise ValueError("Simulated analysis failure.")
+
+    workflow.issue_analyzer.analyze = fail_analysis
+
+    with pytest.raises(
+        ValueError,
+        match="Simulated analysis failure.",
+    ):
+        workflow.run(state)
+
+    assert len(state.stage_traces) == 1
+
+    trace = state.stage_traces[0]
+    assert trace.stage == "analyze"
+    assert trace.status == "failed"
+    assert trace.error_type == "ValueError"
+    assert trace.error_message == "Simulated analysis failure."
+    assert trace.finished_at is not None
+    assert trace.duration_ms is not None
+    assert trace.duration_ms >= 0
+
+    assert len(state.errors) == 1
+    assert state.errors[0].stage == "analyze"
+    assert state.errors[0].error_type == "ValueError"
+    assert state.errors[0].message == "Simulated analysis failure."
+
+
+def test_workflow_rejects_invalid_limits(tmp_path):
+    repository, _ = create_calculator_repository(tmp_path)
+    state = DebuggingState(issue=create_issue(repository))
+    workflow = build_workflow(FakeWorkflowLLM())
+
+    with pytest.raises(ValueError, match="top_k"):
+        workflow.run(state, top_k=0)
+
+    with pytest.raises(ValueError, match="max_steps"):
+        workflow.run(state, max_steps=0)
+
+    assert state.stage_traces == []
+    assert state.errors == []
+
+
+def test_workflow_records_max_steps_error(tmp_path):
+    repository, _ = create_calculator_repository(tmp_path)
+    state = DebuggingState(issue=create_issue(repository))
+    workflow = build_workflow(FakeWorkflowLLM())
+
+    with pytest.raises(
+        RuntimeError,
+        match="exceeded the maximum number",
+    ):
+        workflow.run(state, max_steps=1)
+
+    assert len(state.stage_traces) == 1
+    assert state.stage_traces[0].stage == "analyze"
+    assert state.stage_traces[0].status == "completed"
+
+    assert len(state.errors) == 1
+    assert state.errors[0].stage == "workflow"
+    assert state.errors[0].error_type == "MaxStepsExceeded"

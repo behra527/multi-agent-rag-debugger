@@ -1,7 +1,9 @@
 
+from datetime import datetime, timezone
 from enum import Enum
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class IssuePriority(str, Enum):
@@ -57,6 +59,17 @@ class Evidence(BaseModel):
     end_line: int = Field(ge=1)
     language: str = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def validate_line_range(self):
+        """Ensure the ending line is not before the starting line."""
+
+        if self.end_line < self.start_line:
+            raise ValueError(
+                "end_line must be greater than or equal to start_line."
+            )
+
+        return self
+
 
 class RetrievalResult(BaseModel):
     """Evidence returned by the RAG layer."""
@@ -104,3 +117,35 @@ class DebuggingReport(BaseModel):
     proposed_fix: ProposedFix
     validation: ValidationResult
 
+
+class StageTrace(BaseModel):
+    """Execution details for one workflow stage."""
+
+    stage: str = Field(min_length=1)
+    status: Literal["running", "completed", "failed"]
+
+    started_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    finished_at: datetime | None = None
+
+    duration_ms: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+class WorkflowError(BaseModel):
+    """Structured error information for a debugging run."""
+
+    stage: str = Field(min_length=1)
+    error_type: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+    occurred_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
