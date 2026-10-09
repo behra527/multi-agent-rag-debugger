@@ -1,3 +1,4 @@
+
 from pathlib import Path
 
 from app.core.models import ProposedFix, ValidationResult
@@ -38,7 +39,12 @@ class ValidationService:
                 command=command,
             )
 
-        except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+        except (
+            FileNotFoundError,
+            NotADirectoryError,
+            ValueError,
+            RuntimeError,
+        ) as exc:
             return ValidationResult(
                 passed=False,
                 tests_run=0,
