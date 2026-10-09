@@ -1,3 +1,6 @@
+
+import json
+
 import pytest
 
 from app.core.models import (
@@ -8,7 +11,9 @@ from app.core.models import (
     IssueType,
     ProposedFix,
     RootCauseAnalysis,
+    StageTrace,
     ValidationResult,
+    WorkflowError,
 )
 from app.core.report import (
     FinalDebuggingReport,
@@ -66,10 +71,8 @@ def build_completed_state(
         tests_run=1,
         tests_passed=1 if validation_passed else 0,
         tests_failed=0 if validation_passed else 1,
-        output="1 passed",
-        errors=[] if validation_passed else [
-            "Test failed."
-        ],
+        output="1 passed" if validation_passed else "1 failed",
+        errors=[] if validation_passed else ["Test failed."],
     )
 
     return DebuggingState(
@@ -88,10 +91,7 @@ def test_report_builder_creates_validated_report():
 
     report = ReportBuilder().build(state)
 
-    assert isinstance(
-        report,
-        FinalDebuggingReport,
-    )
+    assert isinstance(report, FinalDebuggingReport)
 
     assert report.issue == state.issue
     assert report.analysis == state.analysis
@@ -101,6 +101,11 @@ def test_report_builder_creates_validated_report():
     assert report.validation == state.validation
 
     assert report.status == "validated"
+    assert report.run_id == state.run_id
+    assert report.created_at == state.created_at
+    assert report.validation_attempts == state.validation_attempts
+    assert report.stage_traces == state.stage_traces
+    assert report.errors == state.errors
 
 
 def test_report_builder_creates_failed_report():
@@ -113,10 +118,7 @@ def test_report_builder_creates_failed_report():
     assert report.status == "failed"
     assert (
         report.message
-        == (
-            "The proposed fix could not be successfully "
-            "validated."
-        )
+        == "The proposed fix could not be successfully validated."
     )
 
 
@@ -132,5 +134,80 @@ def test_report_builder_requires_analysis():
     with pytest.raises(
         ValueError,
         match="without issue analysis",
+    ):
+        ReportBuilder().build(state)
+
+
+def test_report_includes_stage_traces_and_errors():
+    state = build_completed_state()
+
+    trace = StageTrace(
+        stage="analyze",
+        status="completed",
+        duration_ms=12.5,
+    )
+
+    error = WorkflowError(
+        stage="retrieve",
+        error_type="RuntimeError",
+        message="A simulated retrieval warning.",
+    )
+
+    state.stage_traces.append(trace)
+    state.errors.append(error)
+
+    report = ReportBuilder().build(state)
+
+    assert report.stage_traces == [trace]
+    assert report.errors == [error]
+    assert report.stage_traces[0].duration_ms == 12.5
+    assert report.errors[0].error_type == "RuntimeError"
+
+
+def test_report_serializes_to_json():
+    state = build_completed_state()
+    report = ReportBuilder().build(state)
+
+    serialized = report.model_dump_json()
+    payload = json.loads(serialized)
+
+    assert payload["run_id"] == state.run_id
+    assert payload["status"] == "validated"
+    assert payload["validation_attempts"] == 1
+    assert payload["issue"]["title"] == state.issue.title
+    assert payload["validation"]["passed"] is True
+    assert payload["stage_traces"] == []
+    assert payload["errors"] == []
+
+
+def test_report_builder_requires_root_cause():
+    state = build_completed_state()
+    state.root_cause = None
+
+    with pytest.raises(
+        ValueError,
+        match="without root-cause analysis",
+    ):
+        ReportBuilder().build(state)
+
+
+def test_report_builder_requires_proposed_fix():
+    state = build_completed_state()
+    state.proposed_fix = None
+
+    with pytest.raises(
+        ValueError,
+        match="without a proposed fix",
+    ):
+        ReportBuilder().build(state)
+
+
+def test_report_builder_requires_validation():
+    state = build_completed_state()
+    state.validation = None
+
+    with pytest.raises(
+        ValueError,
+        match="without validation results",
     ):
         ReportBuilder().build(state)
