@@ -1,3 +1,6 @@
+
+import json
+
 from app.agents.fix import FixAgent
 from app.agents.issue_analyzer import IssueAnalyzer
 from app.agents.root_cause import RootCauseAgent
@@ -10,6 +13,7 @@ from app.core.models import (
     ProposedFix,
     RootCauseAnalysis,
     ValidationResult,
+    WorkflowError,
 )
 from app.core.project_manager import ProjectManager
 from app.core.supervisor import Supervisor
@@ -92,43 +96,59 @@ class FakeProjectManagerLLM:
         *,
         system_prompt: str | None = None,
     ) -> str:
+        system_prompt = system_prompt or ""
 
         if "software issue analysis agent" in system_prompt:
-            return """
-            {
-                "issue_type": "bug",
-                "priority": "high",
-                "summary": "The calculator returns an incorrect result.",
-                "affected_components": ["calculator"],
-                "search_queries": ["calculator return incorrect result"]
-            }
-            """
+            return json.dumps(
+                {
+                    "issue_type": "bug",
+                    "priority": "high",
+                    "summary": (
+                        "The calculator returns an incorrect result."
+                    ),
+                    "affected_components": ["calculator"],
+                    "search_queries": [
+                        "calculator return incorrect result"
+                    ],
+                }
+            )
 
         if "root-cause analysis agent" in system_prompt:
-            return """
-            {
-                "root_cause": "The calculate function returns 1 instead of 2.",
-                "explanation": "The implementation returns the wrong value.",
-                "affected_files": ["calculator.py"],
-                "evidence": [
-                    "calculator.py returns 1."
-                ],
-                "confidence": 0.96
-            }
-            """
+            return json.dumps(
+                {
+                    "root_cause": (
+                        "The calculate function returns 1 instead of 2."
+                    ),
+                    "explanation": (
+                        "The implementation returns the wrong value."
+                    ),
+                    "affected_files": ["calculator.py"],
+                    "evidence": ["calculator.py returns 1."],
+                    "confidence": 0.96,
+                }
+            )
 
         if "fix generation agent" in system_prompt:
-            return """
-            {
-                "summary": "Correct the calculator result.",
-                "affected_files": ["calculator.py"],
-                "patch": "--- a/calculator.py\\n+++ b/calculator.py\\n@@ -1,2 +1,2 @@\\n def calculate():\\n-    return 1\\n+    return 2\\n",
-                "reasoning": "The function must return 2."
-            }
-            """
+            patch = (
+                "--- a/calculator.py\n"
+                "+++ b/calculator.py\n"
+                "@@ -1,2 +1,2 @@\n"
+                " def calculate():\n"
+                "-    return 1\n"
+                "+    return 2\n"
+            )
+
+            return json.dumps(
+                {
+                    "summary": "Correct the calculator result.",
+                    "affected_files": ["calculator.py"],
+                    "patch": patch,
+                    "reasoning": "The function must return 2.",
+                }
+            )
 
         raise AssertionError(
-            "Unexpected system prompt."
+            f"Unexpected system prompt: {system_prompt}"
         )
 
 
@@ -139,39 +159,23 @@ class FakeEmbeddingProvider(EmbeddingProvider):
         self,
         texts: list[str],
     ) -> list[list[float]]:
-        return [
-            [1.0, 0.0]
-            for _ in texts
-        ]
+        return [[1.0, 0.0] for _ in texts]
 
 
 def build_real_workflow(llm) -> DebuggingWorkflow:
-    """Build the real debugging workflow with deterministic dependencies."""
+    """Build the real workflow with deterministic dependencies."""
 
-    issue_analyzer = IssueAnalyzer(
-        llm=llm
-    )
-
-    root_cause_agent = RootCauseAgent(
-        llm=llm
-    )
-
-    fix_agent = FixAgent(
-        llm=llm
-    )
+    issue_analyzer = IssueAnalyzer(llm=llm)
+    root_cause_agent = RootCauseAgent(llm=llm)
+    fix_agent = FixAgent(llm=llm)
 
     embedding_provider = FakeEmbeddingProvider()
-
-    vector_store = VectorStore(
-        dimension=2
-    )
+    vector_store = VectorStore(dimension=2)
 
     indexer = RepositoryIndexer(
         scanner=RepositoryScanner(),
         loader=RepositoryLoader(),
-        chunker=RepositoryChunker(
-            chunk_size=20
-        ),
+        chunker=RepositoryChunker(chunk_size=20),
         embedding_provider=embedding_provider,
         vector_store=vector_store,
     )
@@ -204,53 +208,115 @@ def build_real_workflow(llm) -> DebuggingWorkflow:
     )
 
 
-def test_project_manager_creates_report_from_workflow():
-    issue = IssueRequest(
+def build_issue(
+    repository_path: str = "fake-repository",
+) -> IssueRequest:
+    """Create a reusable calculator issue."""
+
+    return IssueRequest(
         title="Calculator bug",
         description="The calculator returns the wrong result.",
-        repository_path="fake-repository",
+        repository_path=repository_path,
     )
 
-    manager = ProjectManager(
-        workflow=FakeWorkflow()
-    )
 
-    result = manager.handle_issue(
-        issue
-    )
+class FailingWorkflow:
+    """Simulate a workflow failure during analysis."""
+
+    def run(
+        self,
+        state: DebuggingState,
+        *,
+        top_k: int = 5,
+        validation_command: list[str] | None = None,
+        max_steps: int = 10,
+    ) -> DebuggingState:
+        state.errors.append(
+            WorkflowError(
+                stage="analyze",
+                error_type="ValueError",
+                message="Simulated analysis failure.",
+            )
+        )
+        raise ValueError("Simulated analysis failure.")
+
+
+class UnrecordedFailureWorkflow:
+    """Simulate a failure that was not recorded by the workflow."""
+
+    def run(
+        self,
+        state: DebuggingState,
+        *,
+        top_k: int = 5,
+        validation_command: list[str] | None = None,
+        max_steps: int = 10,
+    ) -> DebuggingState:
+        raise RuntimeError("Unexpected workflow failure.")
+
+
+class MaxStepsWorkflow:
+    """Simulate maximum-step exhaustion."""
+
+    def run(
+        self,
+        state: DebuggingState,
+        *,
+        top_k: int = 5,
+        validation_command: list[str] | None = None,
+        max_steps: int = 10,
+    ) -> DebuggingState:
+        message = (
+            "Debugging workflow exceeded the maximum number "
+            "of allowed steps."
+        )
+
+        state.errors.append(
+            WorkflowError(
+                stage="workflow",
+                error_type="MaxStepsExceeded",
+                message=message,
+            )
+        )
+
+        raise RuntimeError(message)
+
+
+def test_project_manager_creates_report_from_workflow():
+    issue = build_issue()
+
+    manager = ProjectManager(workflow=FakeWorkflow())
+    result = manager.handle_issue(issue)
 
     assert result.issue == issue
-
+    assert result.analysis is not None
     assert result.analysis.issue_type == IssueType.BUG
     assert result.analysis.priority == IssuePriority.HIGH
 
+    assert result.root_cause is not None
     assert result.root_cause.root_cause == (
         "Calculator returns 1 instead of 2."
     )
 
-    assert result.proposed_fix.affected_files == [
-        "calculator.py"
-    ]
+    assert result.proposed_fix is not None
+    assert result.proposed_fix.affected_files == ["calculator.py"]
 
+    assert result.validation is not None
     assert result.validation.passed is True
     assert result.validation.tests_passed == 1
 
     assert result.status == "validated"
-
     assert result.message == (
         "The proposed fix was applied in an isolated "
         "workspace and passed validation."
     )
 
 
-def test_project_manager_runs_real_debugging_workflow(
-    tmp_path,
-):
+def test_project_manager_runs_real_debugging_workflow(tmp_path):
     repository = tmp_path / "project"
     repository.mkdir()
 
     source_file = repository / "calculator.py"
-
     source_file.write_text(
         "def calculate():\n"
         "    return 1\n",
@@ -258,7 +324,6 @@ def test_project_manager_runs_real_debugging_workflow(
     )
 
     test_file = repository / "test_calculator.py"
-
     test_file.write_text(
         "from calculator import calculate\n\n"
         "def test_calculate():\n"
@@ -275,15 +340,8 @@ def test_project_manager_runs_real_debugging_workflow(
         repository_path=str(repository),
     )
 
-    llm = FakeProjectManagerLLM()
-
-    workflow = build_real_workflow(
-        llm
-    )
-
-    manager = ProjectManager(
-        workflow=workflow
-    )
+    workflow = build_real_workflow(FakeProjectManagerLLM())
+    manager = ProjectManager(workflow=workflow)
 
     result = manager.handle_issue(
         issue,
@@ -292,36 +350,80 @@ def test_project_manager_runs_real_debugging_workflow(
     )
 
     assert result.issue == issue
-
+    assert result.analysis is not None
     assert result.analysis.issue_type == IssueType.BUG
     assert result.analysis.priority == IssuePriority.HIGH
 
     assert result.root_cause is not None
-    assert result.root_cause.affected_files == [
-        "calculator.py"
-    ]
-
+    assert result.root_cause.affected_files == ["calculator.py"]
     assert result.evidence
 
     assert result.proposed_fix is not None
     assert result.proposed_fix.patch
 
+    assert result.validation is not None
     assert result.validation.passed is True
     assert result.validation.tests_run == 1
     assert result.validation.tests_passed == 1
     assert result.validation.tests_failed == 0
 
     assert result.status == "validated"
-
     assert result.message == (
         "The proposed fix was applied in an isolated "
         "workspace and passed validation."
     )
 
     # The original repository must remain unchanged.
-    assert source_file.read_text(
-        encoding="utf-8"
-    ) == (
+    assert source_file.read_text(encoding="utf-8") == (
         "def calculate():\n"
         "    return 1\n"
     )
+
+
+def test_project_manager_returns_report_after_stage_failure():
+    manager = ProjectManager(workflow=FailingWorkflow())
+    report = manager.handle_issue(build_issue())
+
+    assert report.status == "failed"
+    assert report.analysis is None
+    assert report.root_cause is None
+    assert report.proposed_fix is None
+    assert report.validation is None
+
+    assert len(report.errors) == 1
+    assert report.errors[0].stage == "analyze"
+    assert report.errors[0].error_type == "ValueError"
+    assert report.errors[0].message == (
+        "Simulated analysis failure."
+    )
+
+    assert "analyze" in report.message
+    assert "Simulated analysis failure." in report.message
+
+
+def test_project_manager_records_unrecorded_exception():
+    manager = ProjectManager(
+        workflow=UnrecordedFailureWorkflow()
+    )
+    report = manager.handle_issue(build_issue())
+
+    assert report.status == "failed"
+    assert len(report.errors) == 1
+    assert report.errors[0].stage == "workflow"
+    assert report.errors[0].error_type == "RuntimeError"
+    assert report.errors[0].message == (
+        "Unexpected workflow failure."
+    )
+
+
+def test_project_manager_does_not_duplicate_max_steps_error():
+    manager = ProjectManager(workflow=MaxStepsWorkflow())
+    report = manager.handle_issue(
+        build_issue(),
+        max_steps=1,
+    )
+
+    assert report.status == "failed"
+    assert len(report.errors) == 1
+    assert report.errors[0].error_type == "MaxStepsExceeded"
+    assert report.errors[0].stage == "workflow"

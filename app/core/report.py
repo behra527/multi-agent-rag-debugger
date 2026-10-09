@@ -23,40 +23,31 @@ class FinalDebuggingReport(BaseModel):
     created_at: datetime
 
     issue: IssueRequest
-    analysis: IssueAnalysis
-    root_cause: RootCauseAnalysis
+    analysis: IssueAnalysis | None = None
+    root_cause: RootCauseAnalysis | None = None
 
-    evidence: list[Evidence] = Field(
-        default_factory=list
-    )
+    evidence: list[Evidence] = Field(default_factory=list)
 
-    proposed_fix: ProposedFix
-    validation: ValidationResult
+    proposed_fix: ProposedFix | None = None
+    validation: ValidationResult | None = None
 
-    validation_attempts: int = Field(
-        ge=0
-    )
+    validation_attempts: int = Field(default=0, ge=0)
 
-    stage_traces: list[StageTrace] = Field(
-        default_factory=list
-    )
-
-    errors: list[WorkflowError] = Field(
-        default_factory=list
-    )
+    stage_traces: list[StageTrace] = Field(default_factory=list)
+    errors: list[WorkflowError] = Field(default_factory=list)
 
     status: str = Field(min_length=1)
     message: str = Field(min_length=1)
 
 
 class ReportBuilder:
-    """Build a final report from the debugging workflow state."""
+    """Build reports from completed or failed workflow states."""
 
     def build(
         self,
         state: DebuggingState,
     ) -> FinalDebuggingReport:
-        """Validate workflow completion and assemble the report."""
+        """Build a report when all required results are available."""
 
         if state.analysis is None:
             raise ValueError(
@@ -90,6 +81,45 @@ class ReportBuilder:
                 "The proposed fix could not be successfully "
                 "validated."
             )
+
+        return self._build_report(
+            state,
+            status=status,
+            message=message,
+        )
+
+    def build_failure(
+        self,
+        state: DebuggingState,
+    ) -> FinalDebuggingReport:
+        """Build a failure report even when workflow data is incomplete."""
+
+        if state.errors:
+            error = state.errors[-1]
+            message = (
+                f"Debugging workflow failed during '{error.stage}' "
+                f"({error.error_type}): {error.message}"
+            )
+        else:
+            message = (
+                "Debugging workflow failed before completion. "
+                "No detailed workflow error was recorded."
+            )
+
+        return self._build_report(
+            state,
+            status="failed",
+            message=message,
+        )
+
+    @staticmethod
+    def _build_report(
+        state: DebuggingState,
+        *,
+        status: str,
+        message: str,
+    ) -> FinalDebuggingReport:
+        """Copy available workflow data into the final report."""
 
         return FinalDebuggingReport(
             run_id=state.run_id,
