@@ -5,11 +5,14 @@ from app.core.models import (
     IssueRequest,
     RootCauseAnalysis,
 )
+from app.core.prompts import load_prompt
 from app.llm.interface import LLMClient
 from app.llm.structured import parse_json_response
 
 
-ROOT_CAUSE_SYSTEM_PROMPT = """
+ROOT_CAUSE_SYSTEM_PROMPT = load_prompt(
+    "root_cause.md",
+    """
 You are a software root-cause analysis agent.
 
 Your job is to identify the most likely root cause of a reported
@@ -31,13 +34,13 @@ The JSON must contain exactly these fields:
 Rules:
 - Base the conclusion only on the provided information.
 - Do not invent files, functions, errors, or behavior.
-- Evidence must directly support the root-cause conclusion.
-- Confidence must be between 0.0 and 1.0.
-- If evidence is insufficient, say so clearly and use a lower confidence.
+- Never name README.md or other documentation as the location of an application-logic defect.
+- If the reported function or class is not in the evidence, say so and use a lower confidence.
 - Do not propose a fix.
 - Do not include markdown.
 - Do not include explanations outside the JSON.
-"""
+""",
+)
 
 
 class RootCauseAgent:

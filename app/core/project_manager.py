@@ -67,11 +67,17 @@ class ProjectManager:
 
             return self.report_builder.build_failure(state)
 
-        # Handle a workflow that returns after recording a max-step error.
-        if any(
+        incomplete = (
+            completed_state.analysis is None
+            or completed_state.root_cause is None
+            or completed_state.proposed_fix is None
+            or completed_state.validation is None
+        )
+        exceeded = any(
             error.error_type == "MaxStepsExceeded"
             for error in completed_state.errors
-        ):
+        )
+        if incomplete or exceeded:
             return self.report_builder.build_failure(completed_state)
 
         return self.report_builder.build(completed_state)

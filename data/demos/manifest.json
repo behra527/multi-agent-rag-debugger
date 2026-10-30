@@ -1,0 +1,43 @@
+{
+  "kind": "atlas-demo-catalog",
+  "note": "Fixtures for local Atlas Repair. Not production data.",
+  "demos": [
+    {
+      "id": "01_python_import_error",
+      "language": "python",
+      "category": "import",
+      "test": "python -m pytest data/demos/01_python_import_error/tests -q"
+    },
+    {
+      "id": "02_fastapi_backend_failure",
+      "language": "python",
+      "framework": "fastapi",
+      "category": "http-validation",
+      "test": "python -m pytest data/demos/02_fastapi_backend_failure/tests -q"
+    },
+    {
+      "id": "03_js_runtime_bug",
+      "language": "javascript",
+      "category": "async",
+      "test": "node --test data/demos/03_js_runtime_bug/test/orders.test.js"
+    },
+    {
+      "id": "04_database_integration_bug",
+      "language": "python",
+      "category": "sqlite",
+      "test": "python -m pytest data/demos/04_database_integration_bug/tests -q"
+    },
+    {
+      "id": "05_config_env_bug",
+      "language": "python",
+      "category": "environment",
+      "test": "python -m pytest data/demos/05_config_env_bug/tests -q"
+    },
+    {
+      "id": "06_regression_test_failure",
+      "language": "python",
+      "category": "regression",
+      "test": "python -m pytest data/demos/06_regression_test_failure/tests -q"
+    }
+  ]
+}

@@ -1,9 +1,12 @@
 from app.core.models import IssueAnalysis, IssueRequest
+from app.core.prompts import load_prompt
 from app.llm.interface import LLMClient
 from app.llm.structured import parse_json_response
 
 
-ISSUE_ANALYZER_SYSTEM_PROMPT = """
+ISSUE_ANALYZER_SYSTEM_PROMPT = load_prompt(
+    "investigator.md",
+    """
 You are a software issue analysis agent.
 
 Analyze the developer's reported issue and return ONLY valid JSON.
@@ -18,9 +21,12 @@ The JSON must contain exactly these fields:
   "search_queries": ["query1", "query2"]
 }
 
+search_queries must be concrete function, class, or file names from the report.
+
 Do not include markdown.
 Do not include explanations outside the JSON.
-"""
+""",
+)
 
 
 class IssueAnalyzer:

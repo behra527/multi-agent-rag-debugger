@@ -1,8 +1,13 @@
-
 from pathlib import Path
 
-from app.core.models import ProposedFix, ValidationResult
+from app.core.grounding import (
+    PatchTypeMismatch,
+    assert_patch_matches_nature,
+    classify_issue_nature,
+)
+from app.core.models import IssueRequest, ProposedFix, ValidationResult
 from app.tools.patcher import PatchApplier
+from app.tools.sandbox import PatchSecurityValidator, SecurityViolationError
 from app.tools.validator import TestRunner
 
 
@@ -23,10 +28,22 @@ class ValidationService:
         proposed_fix: ProposedFix,
         *,
         command: list[str] | None = None,
+        issue: IssueRequest | None = None,
     ) -> ValidationResult:
         try:
+            nature = classify_issue_nature(issue.title, issue.description) if issue else "code"
             workspace = self.patcher.create_workspace(
                 repository_path
+            )
+
+            # Security check patch targets to prevent traversal and unauthorized modifications
+            PatchSecurityValidator.validate_patch(
+                proposed_fix.patch, workspace
+            )
+            assert_patch_matches_nature(
+                proposed_fix.patch,
+                proposed_fix.affected_files,
+                nature=nature,
             )
 
             self.patcher.apply(
@@ -44,6 +61,8 @@ class ValidationService:
             NotADirectoryError,
             ValueError,
             RuntimeError,
+            SecurityViolationError,
+            PatchTypeMismatch,
         ) as exc:
             return ValidationResult(
                 passed=False,

@@ -6,6 +6,15 @@ from time import perf_counter
 from app.agents.fix import FixAgent
 from app.agents.issue_analyzer import IssueAnalyzer
 from app.agents.root_cause import RootCauseAgent
+from app.core.grounding import (
+    DEFECT_TARGET_NOT_FOUND,
+    DefectTargetNotFound,
+    classify_issue_nature,
+    retrieval_queries,
+    filter_evidence_sources,
+    locate_defect_targets,
+    snippets_for_targets,
+)
 from app.core.models import (
     Evidence,
     StageTrace,
@@ -87,8 +96,22 @@ class DebuggingWorkflow:
                     )
 
                     evidence: list[Evidence] = []
+                    queries = retrieval_queries(
+                        state.issue.title,
+                        state.issue.description,
+                        state.analysis.search_queries,
+                    )
+                    nature = classify_issue_nature(state.issue.title, state.issue.description)
+                    targets = locate_defect_targets(
+                        state.issue.repository_path,
+                        title=state.issue.title,
+                        description=state.issue.description,
+                        extra_queries=queries,
+                    )
+                    if nature == "code" and not targets.found:
+                        raise DefectTargetNotFound(DEFECT_TARGET_NOT_FOUND)
 
-                    for query in state.analysis.search_queries:
+                    for query in queries or [state.issue.title]:
                         results = self.retriever.retrieve(
                             query,
                             chunks,
@@ -103,10 +126,30 @@ class DebuggingWorkflow:
                                 )
                             )
 
-                    state.evidence = self.evidence_ranker.rank(
+                    ranked = self.evidence_ranker.rank(
                         evidence,
                         top_k=top_k,
                     )
+                    ranked = filter_evidence_sources(
+                        ranked,
+                        nature=nature,
+                        allowed_files=targets.files or None,
+                    )
+                    if not ranked and targets.files:
+                        for rel, content, start, end in snippets_for_targets(
+                            state.issue.repository_path, targets.files
+                        ):
+                            ranked.append(
+                                Evidence(
+                                    source=rel,
+                                    content=content,
+                                    score=1.0,
+                                    start_line=start,
+                                    end_line=end,
+                                    language=Path(rel).suffix.lstrip(".") or "text",
+                                )
+                            )
+                    state.evidence = ranked
 
                 elif stage == WorkflowStage.ROOT_CAUSE:
                     state.root_cause = (
@@ -136,6 +179,7 @@ class DebuggingWorkflow:
                             ),
                             proposed_fix=state.proposed_fix,
                             command=validation_command,
+                            issue=state.issue,
                         )
                     )
 
@@ -198,7 +242,7 @@ class DebuggingWorkflow:
         return Evidence(
             source=chunk.source,
             content=chunk.content,
-            score=score,
+            score=max(0.0, float(score)),
             start_line=chunk.start_line,
             end_line=chunk.end_line,
             language=chunk.language,

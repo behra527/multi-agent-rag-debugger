@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #08111f;
+  --fg: #f4f7fb;
+  --card: #101a2e;
+  --primary: #3ee0c5;
+  --primary-fg: #04241d;
+  --secondary: #18253d;
+  --muted: #93a0b8;
+  --border: #243352;
+  --destructive: #ff7b86;
+  --ok: #5ee9a5;
+  --warn: #eab308;
+  --info: #38bdf8;
+  --sidebar: #0b1629;
+  --card-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+  --btn-glow: 0 8px 20px rgba(62, 224, 197, 0.2);
+}
+
+html.light {
+  --bg: #f7f8fb;
+  --fg: #0f172a;
+  --card: #ffffff;
+  --primary: #0f766e;
+  --primary-fg: #ffffff;
+  --secondary: #eef2f6;
+  --muted: #475569;
+  --border: #cbd5e1;
+  --destructive: #b91c1c;
+  --ok: #047857;
+  --warn: #b45309;
+  --info: #0369a1;
+  --sidebar: #eef1f5;
+  --card-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --btn-glow: none;
+}
+
+@theme {
+  --font-sans: "Source Sans 3", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--card);
+  --color-card-foreground: var(--fg);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-fg);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--fg);
+  --color-muted: var(--secondary);
+  --color-muted-foreground: var(--muted);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-destructive: var(--destructive);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-info: var(--info);
+  --color-sidebar: var(--sidebar);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3 {
+  font-family: Outfit, var(--font-sans);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}

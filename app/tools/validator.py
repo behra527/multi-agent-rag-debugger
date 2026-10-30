@@ -25,7 +25,20 @@ class TestRunner:
                 f"Repository path is not a directory: {root}"
             )
 
-        test_command = command or ["pytest", "-q"]
+        import os
+        import shutil
+        import sys
+
+        raw_command = list(command or ["pytest", "-q"])
+        test_command = list(raw_command)
+        if test_command:
+            exe = test_command[0]
+            if exe in {"pytest", "pytest.exe"}:
+                test_command = [sys.executable, "-m", "pytest", *test_command[1:]]
+            elif exe in {"python", "python3", "python.exe"}:
+                test_command = [sys.executable, *test_command[1:]]
+            elif shutil.which(exe):
+                test_command[0] = shutil.which(exe)
 
         try:
             process = subprocess.run(
@@ -35,6 +48,7 @@ class TestRunner:
                 text=True,
                 timeout=120,
                 check=False,
+                env=os.environ.copy(),
             )
         except subprocess.TimeoutExpired as exc:
             return ValidationResult(

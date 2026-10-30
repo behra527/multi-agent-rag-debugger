@@ -29,8 +29,13 @@ Thumbs.db
 
 # Project generated data
 data/index/
+data/indexes/
+data/uploads/
 data/cache/
 data/tmp/
+data/*.db
+data/*.db-journal
+data/demos/**/*.sqlite
 
 # Logs
 *.log

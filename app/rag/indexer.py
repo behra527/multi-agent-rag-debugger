@@ -40,6 +40,17 @@ class RepositoryIndexer:
 
         files = self.scanner.scan(root)
         loaded_files = self.loader.load(files)
+
+        # Normalize source paths to be repository-relative.
+        # This prevents absolute OS paths from leaking to agents and the LLM.
+        for lf in loaded_files:
+            try:
+                relative = Path(lf.source).relative_to(root)
+                lf.source = relative.as_posix()
+            except ValueError:
+                # If the path can't be made relative, keep the original.
+                pass
+
         chunks = self.chunker.chunk(loaded_files)
 
         fingerprint = self._create_fingerprint(

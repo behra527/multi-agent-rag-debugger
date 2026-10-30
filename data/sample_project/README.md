@@ -1,3 +1,3 @@
-# Sample Project
+# Sample Project (legacy)
 
-This project contains a simple login function.
+Weak `login()` used by older Atlas sessions. Prefer the six fixtures under `data/demos/` — see `data/README.md`.

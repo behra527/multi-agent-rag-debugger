@@ -1,0 +1,60 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: rag-debugger-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=Multi-Agent RAG Debugger
+      - APP_ENV=production
+      - DEBUG=false
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-hash}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - API_AUTH_TOKEN=${API_AUTH_TOKEN:-}
+      - DATABASE_URL=postgresql://debugger:debugger_password@db:5432/debugger_db
+      - LLM_MODEL=openai/gpt-oss-20b
+      - LLM_TEMPERATURE=0.2
+      - LLM_MAX_TOKENS=800
+      - SANDBOX_TIMEOUT_SECONDS=120
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: rag-debugger-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: rag-debugger-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: debugger
+      POSTGRES_PASSWORD: debugger_password
+      POSTGRES_DB: debugger_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U debugger -d debugger_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

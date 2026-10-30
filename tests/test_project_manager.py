@@ -416,6 +416,37 @@ def test_project_manager_records_unrecorded_exception():
     )
 
 
+class IncompleteWorkflow:
+    """LangGraph-style return: error recorded, later stages never ran."""
+
+    def run(
+        self,
+        state: DebuggingState,
+        *,
+        top_k: int = 5,
+        validation_command: list[str] | None = None,
+        max_steps: int = 10,
+    ) -> DebuggingState:
+        state.errors.append(
+            WorkflowError(
+                stage="graph_execution",
+                error_type="ProviderError",
+                message="Embedding model is not available.",
+            )
+        )
+        return state
+
+
+def test_project_manager_builds_failure_when_analysis_missing():
+    manager = ProjectManager(workflow=IncompleteWorkflow())
+    report = manager.handle_issue(build_issue())
+
+    assert report.status == "failed"
+    assert report.analysis is None
+    assert "graph_execution" in report.message
+    assert "Embedding model is not available." in report.message
+
+
 def test_project_manager_does_not_duplicate_max_steps_error():
     manager = ProjectManager(workflow=MaxStepsWorkflow())
     report = manager.handle_issue(

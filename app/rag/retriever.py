@@ -38,7 +38,7 @@ class RepositoryRetriever:
             RetrievedDocument(
                 source=chunk.source,
                 content=chunk.content,
-                score=score,
+                score=max(0.0, float(score)),
                 metadata={
                     "language": chunk.language,
                     "chunk_index": str(chunk.chunk_index),
@@ -67,7 +67,7 @@ class RepositoryRetriever:
                 Evidence(
                     source=document.source,
                     content=document.content,
-                    score=document.score,
+                    score=max(0.0, float(document.score)),
                     start_line=int(
                         document.metadata["start_line"]
                     ),
